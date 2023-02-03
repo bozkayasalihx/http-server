@@ -29,7 +29,6 @@ func TestCreateEntry(t *testing.T) {
 
 func TestGetEntry(t *testing.T) {
 	ent := randomEntry(t)
-
 	entity, err := testQueries.GetEntry(context.Background(), ent.ID)
 	require.NoError(t, err)
 	require.NotEmpty(t, entity)

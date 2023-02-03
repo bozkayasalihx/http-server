@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 )
 
 type Store struct {
@@ -19,7 +20,6 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) execTx(ctx context.Context, fn func(*Queries) error) error {
-	//todo: make this code little bit clear;
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -28,37 +28,36 @@ func (s *Store) execTx(ctx context.Context, fn func(*Queries) error) error {
 	q := New(tx)
 	err = fn(q)
 	if err != nil {
-		rbError := tx.Rollback()
-		if rbError != nil {
-			return fmt.Errorf("tx err %v, rollback error: %v", err, rbError)
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("tx err: %v, rb err: %v", err, rbErr)
 		}
-
 		return err
 	}
 
 	return tx.Commit()
 }
 
-type TransferTransactionArgs struct {
+type TransferTxParams struct {
 	FromAccountID int64 `json:"from_account_id"`
 	ToAccountID   int64 `json:"to_account_id"`
 	Amount        int64 `json:"amount"`
 }
 
-type TransferTransactionResult struct {
-	Transfer    Transfer `json:"tranfer"`
-	FromAccount Account  `json:"to_account"`
-	ToAccocunt  Account  `json:"from_account"`
+type TransferTxResult struct {
+	Transfer    Transfer `json:"transfer"`
+	FromAccount Account  `json:"from_account"`
+	ToAccount   Account  `json:"to_account"`
 	FromEntry   Entry    `json:"from_entry"`
 	ToEntry     Entry    `json:"to_entry"`
 }
 
-func (s *Store) TransferTx(ctx context.Context, arg TransferTransactionArgs) (TransferTransactionResult, error) {
-	var result TransferTransactionResult
-	err := s.execTx(ctx, func(q *Queries) error {
+func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (TransferTxResult, error) {
+	var result TransferTxResult
+	mutex := sync.RWMutex{}
+
+	err := store.execTx(ctx, func(q *Queries) error {
 		var err error
-		var fromAccount Account
-		var toAccount Account
+		mutex.Lock()
 		result.Transfer, err = q.CreateTransfer(ctx, CreateTransferParams{
 			FromAccountID: arg.FromAccountID,
 			ToAccountID:   arg.ToAccountID,
@@ -67,54 +66,52 @@ func (s *Store) TransferTx(ctx context.Context, arg TransferTransactionArgs) (Tr
 		if err != nil {
 			return err
 		}
-		//note: from enttiy record
+
 		result.FromEntry, err = q.CreateEntity(ctx, CreateEntityParams{
 			AccountID: arg.FromAccountID,
 			Amount:    -arg.Amount,
 		})
-
 		if err != nil {
 			return err
 		}
 
-		//note:to entity record
 		result.ToEntry, err = q.CreateEntity(ctx, CreateEntityParams{
-			AccountID: arg.FromAccountID,
+			AccountID: arg.ToAccountID,
 			Amount:    arg.Amount,
 		})
 		if err != nil {
 			return err
 		}
+		mutex.Unlock()
 
-		//note: update acconts
-		fromAccount, err = q.GetAccount(ctx, arg.FromAccountID)
-		if err != nil {
-			return err
-		}
-		toAccount, err = q.GetAccount(ctx, arg.ToAccountID)
-		if err != nil {
-			return err
-		}
+		// account1, err := q.GetAccountForUpdate(ctx, arg.FromAccountID)
+		// if err != nil {
+		// 	return err
+		// }
 
-		result.FromAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
-			ID:      arg.FromAccountID,
-			Balance: fromAccount.Balance - arg.Amount,
-		})
-		if err != nil {
-			return err
-		}
+		// result.FromAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+		// 	ID:      account1.ID,
+		// 	Balance: account1.Balance - arg.Amount,
+		// })
+		// if err != nil {
+		// 	return err
+		// }
 
-		result.ToAccocunt, err = q.UpdateAccount(ctx, UpdateAccountParams{
-			ID:      arg.ToAccountID,
-			Balance: toAccount.Balance + arg.Amount,
-		})
+		// account2, err := q.GetAccountForUpdate(ctx, arg.ToAccountID)
+		// if err != nil {
+		// 	return err
+		// }
 
-		if err != nil {
-			return err
-		}
-		return err
+		// result.ToAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+		// 	ID:      account2.ID,
+		// 	Balance: account2.Balance + arg.Amount,
+		// })
+		// if err != nil {
+		// 	return err
+		// }
+
+		return nil
 	})
 
 	return result, err
-
 }
