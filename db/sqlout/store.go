@@ -10,7 +10,7 @@ import (
 type Store struct {
 	db *sql.DB
 	*Queries
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func NewStore(db *sql.DB) *Store {
