@@ -110,6 +110,7 @@ func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (Trans
 			ID:      account1.ID,
 			Balance: account1.Balance - arg.Amount,
 		})
+
 		if err != nil {
 			return err
 		}
